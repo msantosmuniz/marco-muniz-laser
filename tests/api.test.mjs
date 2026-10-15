@@ -110,3 +110,41 @@ test('logout sempre apaga cookies locais mesmo com JWT expirado', async () => {
   assert.equal(r.status, 200);
   assert.match(r.headers.get('set-cookie'), /Max-Age=0/);
 });
+
+test('logout renova JWT expirado somente para revogar a sessão remota', async () => {
+  const calls = [];
+  const r = await handleRequest(
+    req('logout', 'POST', {}, { cookie: '__Host-mml_access=expired; __Host-mml_refresh=refresh' }),
+    env,
+    async (url, opts) => {
+      calls.push(url);
+      if (url.endsWith('/user')) return json({}, 401);
+      if (url.includes('/token?')) {
+        assert.deepEqual(JSON.parse(opts.body), { refresh_token: 'refresh' });
+        return json({ access_token: 'renewed' });
+      }
+      assert.equal(opts.headers.Authorization, 'Bearer renewed');
+      return new Response(null, { status: 204 });
+    },
+  );
+  assert.deepEqual(await r.json(), { ok: true, revoked: true });
+  assert.ok(calls.some((url) => url.endsWith('/logout?scope=local')));
+  assert.match(r.headers.get('set-cookie'), /Max-Age=0/);
+  assert.doesNotMatch(r.headers.get('set-cookie'), /renewed/);
+});
+
+test('falha de auditoria ou acesso administrativo revogado não bloqueia logout no Auth', async () => {
+  let revoked = false;
+  const r = await handleRequest(
+    req('logout', 'POST', {}, { cookie: '__Host-mml_access=valid' }), env,
+    async (url) => {
+      if (url.endsWith('/user')) return json({ id: userId });
+      if (url.includes('/rpc/')) return json({}, 403);
+      assert.ok(url.endsWith('/logout?scope=local'));
+      revoked = true;
+      return new Response(null, { status: 204 });
+    },
+  );
+  assert.equal(revoked, true);
+  assert.deepEqual(await r.json(), { ok: true, revoked: true });
+});
