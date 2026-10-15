@@ -4,7 +4,8 @@ Verificação em 15/10/2026, sem dados reais ou serviços de produção.
 
 ## Automatizado
 
-- **25 testes aprovados** com `node --test tests/*.test.mjs`.
+- **34 testes aprovados** com `node --test tests/*.test.mjs` após a revisão técnica.
+- Regressões de sessão: respostas e corpos JSON atrasados após bloqueio, refresh concorrente, encerramento antes de novo login, resposta antiga após nova sessão, revogação de autorização e falha de rede no logout. API cobre revogação após expiração do access token e falha da auditoria.
 - Migração executada de fato em PostgreSQL em memória (PGlite), com papéis Auth simulados: RLS, allowlist, privilégios por coluna, autoria das notas, proteção da auditoria, versão de registro, conflito de agenda, pagamentos acima do saldo, deduplicação de submissão financeira e revogação de acesso.
 - Seed fictício testado: exige habilitação explícita e tabela de pacientes vazia.
 - API testada com provedor Supabase simulado: falta de configuração/sessão, origem externa, usuário sem permissão, login/cookies, refresh, conflito de edição, validação, limite de corpo e logout.
@@ -19,6 +20,6 @@ As regras CSS também incluem layout desktop; a tentativa de override para 1440 
 
 ## Limites da validação
 
-A compilação local de Pages Functions pelo Wrangler 4.45.0 foi tentada, mas o processo esbuild foi bloqueado ao consultar diretórios ancestrais pelo sandbox Windows (`Cannot read directory`, acesso negado). Não houve confirmação de compilação do bundle de Functions nesta máquina. O workflow GitHub inclui essa verificação em runner Ubuntu; seu resultado deve ser conferido antes do merge.
+A compilação local de Pages Functions pelo Wrangler 4.45.0 foi bloqueada ao consultar diretórios ancestrais pelo sandbox Windows. A compilação foi confirmada no runner Ubuntu do [GitHub Actions](https://github.com/msantosmuniz/marco-muniz-laser/actions/runs/38803064352), antes das correções de revisão. O workflow repete testes, build estático e compilação de Functions a cada atualização; conferir o resultado do commit atual antes do merge.
 
 Não foi executado Supabase Auth real, hospedagem Cloudflare, cookies no edge em HTTPS nem concorrência entre duas conexões PostgreSQL reais. O guia SETUP lista esses testes de aceite. Nenhum deploy foi realizado.
