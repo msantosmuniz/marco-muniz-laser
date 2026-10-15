@@ -158,11 +158,30 @@ export async function handleRequest(request, env, fetcher = fetch) {
     if (path === 'logout' && request.method === 'POST') {
       await readJson(request);
       let revoked = false;
+      let logoutToken = token;
       try {
-        await authorize(token);
-        await log(token, 'logout');
-        await sb('/auth/v1/logout?scope=local', { method: 'POST', token });
-        revoked = true;
+        if (logoutToken) {
+          try {
+            await sb('/auth/v1/user', { token: logoutToken });
+          } catch {
+            logoutToken = '';
+          }
+        }
+        const refreshToken = cookie(request, refreshCookie);
+        if (!logoutToken && refreshToken) {
+          const session = await sb('/auth/v1/token?grant_type=refresh_token', {
+            method: 'POST',
+            body: { refresh_token: refreshToken },
+          });
+          logoutToken = session.access_token;
+        }
+        if (logoutToken) {
+          // An audit outage or removed admin permission must not prevent Auth
+          // revocation. The RPC independently enforces its admin policy.
+          await log(logoutToken, 'logout').catch(() => {});
+          await sb('/auth/v1/logout?scope=local', { method: 'POST', token: logoutToken });
+          revoked = true;
+        }
       } catch {
         /* no tokens or personal data in logs */
       }
