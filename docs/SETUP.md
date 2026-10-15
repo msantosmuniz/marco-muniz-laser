@@ -49,7 +49,7 @@ Não houve publicação nesta entrega. Para uma futura homologação autorizada:
 7. Percorra os cinco status do CRM e confira métricas do mês da criação do orçamento.
 8. Registre recebimento parcial, tente valor acima do saldo e confirme rejeição. Compare receita por data de recebimento e valor das sessões pelo mês de atendimento.
 9. Confira auditoria e autor, login/refresh/logout; tente alterar audit_events ou admins usando o JWT: acesso deve ser negado.
-10. Aguarde expiração do access token e valide refresh, depois logout. Desative o admin no banco: o JWT existente não deve mais ler dados.
+10. Aguarde expiração do access token e valide refresh, depois logout. Desative o admin no banco: o JWT existente não deve mais ler dados. Com rede lenta, inicie uma atualização e saia: a resposta atrasada não pode repor dados. Simule falta de rede no logout e confira bloqueio imediato; reconecte e encerre a sessão novamente para confirmar limpeza dos cookies. Teste também logout durante refresh e acesso em abas distintas.
 11. Teste celular, teclado e formulário com erro. Inspecione cookies HttpOnly/Secure/SameSite e ausência de tokens/dados clínicos em storage do navegador. Verifique headers em arquivos estáticos **e** endpoints da API.
 12. Teste backup/restauração em ambiente separado. Valide requisitos operacionais de privacidade antes de dados reais.
 
