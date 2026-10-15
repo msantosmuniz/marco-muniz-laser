@@ -1,0 +1,20 @@
+name: Tests and build
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: corepack enable
+      - run: corepack prepare pnpm@11.25.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: node --test tests/*.test.mjs
+      - run: node scripts/build.mjs
+      - run: pnpm dlx wrangler@4.45.0 pages functions build --outdir .wrangler/compiled
+        env:
+          WRANGLER_SEND_METRICS: 'false'
