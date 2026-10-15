@@ -5,6 +5,7 @@
 | Camada | Arquivos | Responsabilidade |
 |---|---|---|
 | Interface | `public/app.js`, `styles.css`, `index.html` | Navegação, formulários, estados vazios, feedback e versão em memória para demonstração |
+| Cliente de sessão | `public/api-client.js` | Renovação compartilhada, descarte de respostas antigas e encerramento imediato da tela |
 | Regras de domínio | `public/domain.js` | Métricas, dinheiro, fuso de Santos, saldos e sugestões de retorno |
 | API/BFF | `functions/api/[[path]].js`, `server/api.js` | Rotas Pages, sessão, autorização, CSRF, cookies e chamadas ao Supabase |
 | Validação | `server/validation.js` | Campos permitidos, limites, UUIDs, datas, valores e status |
@@ -47,7 +48,8 @@ O HTML e o código cliente são públicos; não contêm informações privadas. 
 - Os tokens retornam em `__Host-mml_access` e `__Host-mml_refresh`: `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`, sem atributo Domain. Portanto o site institucional não recebe os cookies da intranet. O corpo JSON nunca retorna tokens ao JavaScript.
 - Access cookie dura `expires_in` do Supabase. Refresh cookie dura 8 horas desde a última renovação (janela móvel, não duração absoluta). Configure expiração de JWT de 15 minutos e limites de sessão no provedor conforme disponibilidade do plano. A UI bloqueia após 15 minutos de inatividade, limpa os dados em memória e tenta revogar a sessão.
 - Após resposta 401, o cliente tenta `/api/refresh` uma vez; há uma promessa compartilhada para evitar renovação simultânea na mesma aba. O servidor troca o refresh token, revalida o administrador e atualiza ambos os cookies. Abas separadas podem competir pela rotação: falha leva a novo login.
-- Logout tenta revogar a sessão local no Supabase e apaga os cookies mesmo quando a sessão já venceu. JWTs são stateless e podem permanecer válidos até a expiração; desativar `admins.active` interrompe acesso ao banco de imediato. A interface informa quando não foi possível confirmar revogação remota.
+- Ao sair ou bloquear por inatividade, a interface limpa os dados imediatamente e invalida respostas pendentes. Uma resposta antiga não pode reabrir o espaço de trabalho nem encerrar uma sessão posterior. Respostas 403 em operações privadas também bloqueiam a tela. Login/refresh pendentes terminam antes do logout, evitando que seus cookies sejam aplicados depois da limpeza na mesma aba; novos logins aguardam esse encerramento.
+- Logout tenta revogar a sessão local no Supabase e apaga os cookies mesmo quando a sessão já venceu. Se o access token venceu, utiliza o refresh cookie exclusivamente para obter um token e revogar a sessão, sem devolvê-lo ao navegador. Falha da auditoria ou remoção da allowlist não impede essa tentativa de revogação. JWTs são stateless e podem permanecer válidos até a expiração; desativar `admins.active` interrompe acesso ao banco de imediato. A interface informa quando não foi possível confirmar revogação remota. Sem rede, a tela é limpa, mas não há garantia de limpeza dos cookies HttpOnly; reconectar e encerrar a sessão antes de compartilhar o dispositivo.
 - Não há tokens nem dados clínicos em URL, localStorage, IndexedDB, cache de service worker ou logs da aplicação.
 
 ## Endpoints
