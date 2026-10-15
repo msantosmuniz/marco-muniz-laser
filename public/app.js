@@ -7,6 +7,7 @@ import {
   suggestedReturn,
 } from './domain.js';
 import { createDemo } from './demo.js';
+import { createApiClient, SessionChangedError } from './api-client.js';
 const root = document.querySelector('#root');
 const dialog = document.querySelector('#editor');
 const notice = document.querySelector('#notice');
@@ -21,7 +22,8 @@ let data,
   search = '',
   month = localDate(new Date()).slice(0, 7),
   patientId = null;
-let refreshPromise;
+const client = createApiClient({ onSessionEnd: clearWorkspace });
+const api = client.request;
 const names = {
   dashboard: 'Visão geral',
   patients: 'Pacientes',
@@ -61,30 +63,6 @@ function notify(text, error = false) {
     notice.className = '';
   }, 7000);
 }
-async function api(path, method = 'GET', body, retry = true) {
-  const result = await fetch(`/api/${path}`, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-    credentials: 'same-origin',
-    cache: 'no-store',
-  });
-  if (result.status === 401 && retry && !['login', 'refresh', 'logout'].includes(path)) {
-    refreshPromise ||= api('refresh', 'POST', {}, false).finally(() => {
-      refreshPromise = undefined;
-    });
-    try {
-      await refreshPromise;
-      return api(path, method, body, false);
-    } catch {
-      clearWorkspace();
-      throw new Error('Sessão encerrada. Entre novamente.');
-    }
-  }
-  const payload = await result.json();
-  if (!result.ok) throw new Error(payload.error || 'Não foi possível concluir.');
-  return payload;
-}
 function login() {
   root.innerHTML = `<main class="login"><section class="login-story"><a class="brand" href="/"><span class="mark">M</span><span>MARCO MUNIZ<small>LASER · SANTOS</small></span></a><div><span class="eyebrow">CUIDADO EM CADA ETAPA</span><h1>Mais atenção<br>às pessoas.<br>Mais clareza<br>na gestão.</h1><p>Um espaço para organizar o dia a dia da clínica.</p></div><small>Acesso exclusivo da equipe</small></section><section class="login-form"><span class="eyebrow">GESTÃO DA CLÍNICA</span><h2>Bem-vindo de volta.</h2><p>Entre com sua conta individual para continuar.</p><form id="login-form"><label>E-mail<input name="email" type="email" autocomplete="username" required maxlength="254"></label><label>Senha<input name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="256"></label><p id="login-error" class="form-error" role="alert"></p><button class="primary">Entrar na intranet <span>→</span></button></form><p class="hint">Acesso por convite. Para recuperar sua conta, procure o responsável pelo Supabase da clínica.</p>${['localhost', '127.0.0.1'].includes(location.hostname) ? '<button id="demo" class="secondary">Explorar com dados fictícios</button><p class="hint">Demonstração local. Dados apenas em memória.</p>' : ''}</section></main>`;
   document.querySelector('#demo')?.addEventListener('click', () => {
@@ -101,7 +79,8 @@ function login() {
       data = await api('data');
       render();
     } catch (error) {
-      document.querySelector('#login-error').textContent = error.message;
+      const box = document.querySelector('#login-error');
+      if (box && !(error instanceof SessionChangedError)) box.textContent = error.message;
     } finally {
       button.disabled = false;
     }
@@ -144,17 +123,10 @@ function render() {
     }
   });
   document.querySelector('#logout').onclick = async () => {
-    try {
-      if (!demo) {
-        const result = await api('logout', 'POST', {});
-        if (!result.revoked)
-          notify('Sessão local encerrada. A revogação remota não pôde ser confirmada.');
-      }
-    } catch (error) {
-      notify(error.message, true);
-      return;
-    }
-    clearWorkspace();
+    if (demo) return clearWorkspace();
+    const result = await client.endSession();
+    if (!result.revoked)
+      notify('Tela bloqueada. A revogação remota não pôde ser confirmada.', true);
   };
   bindContent();
   const refreshButton = document.createElement('button');
@@ -597,8 +569,7 @@ for (const event of ['pointerdown', 'keydown'])
   );
 setInterval(async () => {
   if (!demo && data && Date.now() - lastActivity > 15 * 60 * 1000) {
-    clearWorkspace();
-    await api('logout', 'POST', {}).catch(() => {});
+    await client.endSession();
     notify('Sessão bloqueada após 15 minutos de inatividade.');
   }
 }, 15000);
@@ -606,6 +577,6 @@ try {
   await api('session');
   data = await api('data');
   render();
-} catch {
-  login();
+} catch (error) {
+  if (!(error instanceof SessionChangedError)) login();
 }
