@@ -98,6 +98,11 @@ export async function handleRequest(request, env, fetcher = fetch) {
         if (result.status === 401) throw new HttpError(401, 'Sessão expirada. Entre novamente.');
         if (code === '23P01' || code === '23505')
           throw new HttpError(409, 'Conflito: horário ocupado ou registro duplicado.');
+        if (code === 'P0002')
+          throw new HttpError(
+            409,
+            'Telefone já cadastrado ou ambíguo. Confira e selecione o cliente existente.',
+          );
         if (code === '23514' || code === '23503' || code === 'P0001')
           throw new HttpError(
             400,
@@ -199,6 +204,15 @@ export async function handleRequest(request, env, fetcher = fetch) {
       return response({ ok: true, revoked }, 200, null);
     }
     const user = await authorize(token);
+    if (path === 'patient-intake' && request.method === 'POST') {
+      const payload = validate('patients', await readJson(request));
+      const result = await sb('/rest/v1/rpc/create_patient_intake', {
+        method: 'POST',
+        token,
+        body: { payload },
+      });
+      return response(result, 201);
+    }
     if (path === 'quote-intake' && request.method === 'POST') {
       const payload = validateQuoteIntake(await readJson(request));
       const result = await sb('/rest/v1/rpc/create_quote_intake', {
