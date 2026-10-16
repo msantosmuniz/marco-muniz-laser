@@ -20,6 +20,11 @@ const date = (v) => {
   return new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day;
 };
 const oneOf = (values) => (value) => values.includes(value);
+const calendarDate = (v) =>
+  typeof v === 'string' &&
+  /^\d{4}-\d{2}-\d{2}$/.test(v) &&
+  Number.isFinite(Date.parse(`${v}T12:00:00Z`)) &&
+  new Date(`${v}T12:00:00Z`).toISOString().slice(0, 10) === v;
 export const schemas = {
   patients: {
     name: (v) => text(v, 2, 120),
@@ -39,8 +44,19 @@ export const schemas = {
     patient_id: uuid,
     procedure_id: uuid,
     amount_cents: (v) => integer(v, 0, 100000000),
-    status: oneOf(['novo', 'orçamento enviado', 'fechado', 'sem resposta', 'perdido']),
+    status: oneOf([
+      'novo',
+      'orçamento enviado',
+      'fechado',
+      'sem resposta',
+      'perdido',
+      'aguardando',
+    ]),
+    description: (v) => v === undefined || text(v, 0, 4000),
+    session_price_cents: (v) => v == null || integer(v, 0, 100000000),
+    quote_date: (v) => v == null || calendarDate(v),
   },
+  quote_contacts: { quote_id: uuid, stage: oneOf([7, 15]) },
   payments: {
     appointment_id: uuid,
     amount_cents: (v) => integer(v, 1, 100000000),
@@ -64,4 +80,27 @@ export function validate(entity, input) {
       typeof value === 'string' ? value.trim() : value,
     ]),
   );
+}
+export function validateQuoteIntake(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input))
+    throw new HttpError(400, 'Dados inválidos.');
+  const { name, phone, intake_key, ...quote } = input;
+  if (!uuid(intake_key)) throw new HttpError(400, 'Identificador de submissão obrigatório.');
+  if (!calendarDate(quote.quote_date) || !integer(quote.session_price_cents, 0, 100000000))
+    throw new HttpError(400, 'Informe a data e o valor por sessão.');
+  const isNew = quote.patient_id === null;
+  if (isNew && (!text(name, 2, 120) || typeof phone !== 'string' || !/^\d{10,13}$/.test(phone)))
+    throw new HttpError(400, 'Confira nome e telefone do cliente.');
+  if (!isNew && (name !== undefined || phone !== undefined))
+    throw new HttpError(400, 'Escolha um cliente existente ou um novo cadastro.');
+  const clean = validate('quotes', {
+    ...quote,
+    patient_id: isNew ? intake_key : quote.patient_id,
+  });
+  return {
+    ...clean,
+    patient_id: isNew ? null : clean.patient_id,
+    intake_key,
+    ...(isNew ? { name: name.trim(), phone } : {}),
+  };
 }
