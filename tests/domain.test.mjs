@@ -1,7 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { suggestedReturn, monthlyMetrics, outstanding } from '../public/domain.js';
+import { suggestedReturn, monthlyMetrics, dailySchedule, outstanding } from '../public/domain.js';
 import { validate } from '../server/validation.js';
+
+test('agenda diária usa Brasília, ordena horários e exclui cancelamentos da previsão', () => {
+  const appointments = [
+    { id: 'late', status: 'agendado', starts_at: '2026-10-16T02:30:00Z', price_cents: 20050 },
+    { id: 'done', status: 'realizado', starts_at: '2026-10-15T09:00:00-03:00', price_cents: 10025 },
+    { id: 'cancel', status: 'cancelado', starts_at: '2026-10-15T15:00:00Z', price_cents: 90000 },
+    { id: 'next', status: 'agendado', starts_at: '2026-10-16T03:00:00Z', price_cents: 30000 },
+    { id: 'previous', status: 'realizado', starts_at: '2026-10-15T02:59:59Z', price_cents: 40000 },
+  ];
+  const result = dailySchedule({ appointments, payments: [{ amount_cents: 5000 }] }, '2026-10-15');
+  assert.deepEqual(result.sessions.map((a) => a.id), ['done', 'late']);
+  assert.equal(result.forecast, 30075);
+  assert.equal(appointments[0].id, 'late');
+});
+
+test('dia sem atendimentos tem lista vazia e previsão zero', () => {
+  assert.deepEqual(dailySchedule({ appointments: [] }, '2026-10-15'), { sessions: [], forecast: 0 });
+});
 test('intervalos atravessam meses e anos sem criar agendamentos', () => {
   assert.equal(suggestedReturn('2026-12-20T12:00:00-03:00', 60), '2027-02-18');
   assert.equal(suggestedReturn('2026-10-15T12:00:00-03:00', 30), '2026-11-14');
