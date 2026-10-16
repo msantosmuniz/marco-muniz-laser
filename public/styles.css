@@ -478,6 +478,24 @@ small {
 .toolbar p {
   margin: 0;
 }
+.customer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 18px;
+}
+.toolbar .customer-actions {
+  margin: 0;
+}
+@media (max-width: 600px) {
+  .customer-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  .customer-actions button {
+    width: 100%;
+  }
+}
 .search {
   font-size: 11px;
   display: grid;
