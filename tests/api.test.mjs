@@ -30,7 +30,7 @@ const authMock = (url) =>
       ? json([{ user_id: userId }])
       : json([]);
 test('intake e acompanhamento exigem sessão e administrador', async () => {
-  for (const path of ['quote-intake', 'quote_contacts']) {
+  for (const path of ['quote-intake', 'quote_contacts', 'patient-intake']) {
     assert.equal((await handleRequest(req(path, 'POST', {}), env, authMock)).status, 401);
     assert.equal(
       (
@@ -232,4 +232,54 @@ test('falha de auditoria ou acesso administrativo revogado não bloqueia logout 
   );
   assert.equal(revoked, true);
   assert.deepEqual(await r.json(), { ok: true, revoked: true });
+});
+
+test('cadastro rápido valida entrada, usa JWT e traduz conflito sem dados pessoais', async () => {
+  const input = { name: 'Cliente Fictício', phone: '13900000000', procedure_id: userId };
+  let writes = 0;
+  const fetcher = async (url, opts) => {
+    if (url.endsWith('/rpc/create_patient_intake')) {
+      writes++;
+      assert.equal(opts.headers.Authorization, 'Bearer test');
+      assert.deepEqual(JSON.parse(opts.body), { payload: input });
+      return json({ id: userId, ...input });
+    }
+    return authMock(url);
+  };
+  const headers = { cookie: '__Host-mml_access=test' };
+  assert.equal(
+    (
+      await handleRequest(
+        req('patient-intake', 'POST', { ...input, phone: 'abc' }, headers),
+        env,
+        fetcher,
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await handleRequest(
+        req('patient-intake', 'POST', { ...input, id: userId }, headers),
+        env,
+        fetcher,
+      )
+    ).status,
+    400,
+  );
+  assert.equal(writes, 0);
+  const result = await handleRequest(req('patient-intake', 'POST', input, headers), env, fetcher);
+  assert.equal(result.status, 201);
+  assert.equal(result.headers.get('cache-control'), 'no-store, private');
+  assert.equal((await result.json()).id, userId);
+  const conflict = await handleRequest(
+    req('patient-intake', 'POST', input, headers),
+    env,
+    async (url) =>
+      url.includes('/rpc/')
+        ? json({ code: 'P0002', message: 'Sensitive DB details' }, 400)
+        : authMock(url),
+  );
+  assert.equal(conflict.status, 409);
+  assert.ok(!(await conflict.text()).includes('Sensitive'));
 });
