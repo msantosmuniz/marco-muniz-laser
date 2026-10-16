@@ -3,6 +3,7 @@ import {
   money,
   localDate,
   monthlyMetrics,
+  dailySchedule,
   outstanding,
   suggestedReturn,
 } from './domain.js';
@@ -149,6 +150,13 @@ function render() {
 function content() {
   if (page === 'dashboard') {
     const m = monthlyMetrics(data, month);
+    const today = localDate(new Date());
+    const daily = dailySchedule(data, today);
+    const todayLabel = today.split('-').reverse().join('/');
+    const time = (value) => new Intl.DateTimeFormat('pt-BR', {
+      hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo',
+    }).format(new Date(value));
+    const dailyPanel = `<section class="panel daily-panel" aria-labelledby="daily-title"><div class="panel-title"><div><h2 id="daily-title">Clientes do dia</h2><p class="hint">Hoje, ${todayLabel} · Horários de Brasília</p></div><button data-page-link="appointments" class="text-button">Ver agenda →</button></div><div class="daily-layout"><div class="table-wrap">${daily.sessions.length ? `<table aria-label="Clientes do dia"><thead><tr><th>Horário</th><th>Nome</th><th>Procedimento</th><th>Valor</th><th>Situação</th></tr></thead><tbody>${daily.sessions.map((a) => `<tr><td class="daily-time">${time(a.starts_at)}</td><td><button class="text-button patient-name" data-patient="${a.patient_id}">${escape(patient(a.patient_id)?.name)}</button></td><td>${escape(procedure(a.procedure_id)?.name)}</td><td class="daily-value">${money(a.price_cents)}</td><td>${badge(a.status)}</td></tr>`).join('')}</tbody></table>` : empty('Nenhum atendimento agendado ou realizado para hoje.')}</div><aside class="daily-forecast" aria-label="Faturamento previsto do dia"><span>Faturamento previsto do dia</span><strong>${money(daily.forecast)}</strong><small>${daily.sessions.length} atendimento${daily.sessions.length === 1 ? '' : 's'} · ${todayLabel}</small><p>Estimativa pela soma das sessões agendadas e realizadas de hoje. Cancelamentos não entram. O valor recebido está no Financeiro.</p></aside></div></section>`;
     const upcoming = data.appointments
       .filter((a) => a.status === 'agendado' && new Date(a.starts_at) >= new Date())
       .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
@@ -165,7 +173,7 @@ function content() {
       )
       .join(
         '',
-      )}</div><div class="two-columns"><section class="panel"><div class="panel-title"><h2>Próximas sessões</h2><button data-page-link="appointments" class="text-button">Ver agenda →</button></div>${upcoming.length ? upcoming.map((a) => appointmentRow(a)).join('') : empty('Nenhuma sessão futura agendada.')}</section><section class="panel"><div class="panel-title"><h2>Orçamentos do mês</h2><span class="pill">${m.quotes} oportunidades</span></div><p class="hint">Status atual dos orçamentos criados no mês selecionado.</p><div class="pipeline">${statuses
+      )}</div>${dailyPanel}<div class="two-columns"><section class="panel"><div class="panel-title"><h2>Próximas sessões</h2><button data-page-link="appointments" class="text-button">Ver agenda →</button></div>${upcoming.length ? upcoming.map((a) => appointmentRow(a)).join('') : empty('Nenhuma sessão futura agendada.')}</section><section class="panel"><div class="panel-title"><h2>Orçamentos do mês</h2><span class="pill">${m.quotes} oportunidades</span></div><p class="hint">Status atual dos orçamentos criados no mês selecionado.</p><div class="pipeline">${statuses
       .map((status) => {
         const count = data.quotes.filter(
           (q) => localDate(q.created_at).startsWith(month) && q.status === status,
@@ -271,6 +279,7 @@ function bindContent() {
   root.querySelectorAll('[data-patient]').forEach(
     (b) =>
       (b.onclick = () => {
+        page = 'patients';
         patientId = b.dataset.patient;
         render();
       }),
