@@ -1,5 +1,4 @@
 import {
-  statuses,
   money,
   localDate,
   monthlyMetrics,
@@ -8,6 +7,18 @@ import {
   suggestedReturn,
 } from './domain.js';
 import { createDemo } from './demo.js';
+import {
+  quoteStatuses,
+  quoteStatus,
+  quoteDay,
+  quoteMetrics,
+  quoteReminders,
+  quoteMessage,
+  whatsappLink,
+  quoteDocument,
+  normalizePhone,
+  normalizeName,
+} from './quotes.js';
 import { createApiClient, SessionChangedError } from './api-client.js';
 const root = document.querySelector('#root');
 const dialog = document.querySelector('#editor');
@@ -95,6 +106,8 @@ function clearWorkspace() {
   search = '';
   dialog.close();
   dialog.replaceChildren();
+  document.body.classList.remove('printing-quote');
+  dialog.classList.remove('quote-preview');
   login();
 }
 function render() {
@@ -107,7 +120,7 @@ function render() {
     )
     .join(
       '',
-    )}</nav><div class="sidebar-bottom"><span class="avatar">AD</span><div><strong>Administrador</strong><small>${demo ? 'Demonstração' : 'Conta individual'}</small></div><button id="logout" aria-label="Sair" title="Sair">↪</button></div></aside><main class="workspace">${demo ? '<div class="demo-banner">DEMONSTRAÇÃO · Somente dados fictícios em memória. Alterações são descartadas ao sair ou recarregar.</div>' : ''}<header class="topbar"><span>Clínica <span class="breadcrumb">/ ${names[page]}</span></span><span class="location">Santos, SP <span class="dot"></span> ${demo ? 'Ambiente de teste' : 'Área restrita'}</span></header><div class="content"><div class="page-heading"><div><span class="eyebrow">MARCO MUNIZ LASER</span><h1>${names[page]}</h1><p>${{ dashboard: 'O cuidado começa com uma rotina bem organizada.', patients: 'Pessoas, procedimentos e histórico em um só lugar.', appointments: 'Organize sessões e acompanhe os próximos retornos.', quotes: 'Acompanhe cada oportunidade, do contato à decisão.', payments: 'Valores das sessões e recebimentos da clínica.', procedures: 'Intervalos sugeridos e preferências da clínica.', audit: 'Rastreabilidade das ações dos administradores.' }[page]}</p></div>${['dashboard', 'appointments', 'payments'].includes(page) ? `<label class="month-filter">Mês de referência<input id="month" type="month" value="${month}" required></label>` : ''}</div><section id="page-content">${content()}</section><footer>Marco Muniz Laser <span>Gestão com cuidado · Horários de Brasília</span></footer></div></main></div>`;
+    )}</nav><div class="sidebar-bottom"><span class="avatar">AD</span><div><strong>Administrador</strong><small>${demo ? 'Demonstração' : 'Conta individual'}</small></div><button id="logout" aria-label="Sair" title="Sair">↪</button></div></aside><main class="workspace">${demo ? '<div class="demo-banner">DEMONSTRAÇÃO · Somente dados fictícios em memória. Alterações são descartadas ao sair ou recarregar.</div>' : ''}<header class="topbar"><span>Clínica <span class="breadcrumb">/ ${names[page]}</span></span><span class="location">Santos, SP <span class="dot"></span> ${demo ? 'Ambiente de teste' : 'Área restrita'}</span></header><div class="content"><div class="page-heading"><div><span class="eyebrow">MARCO MUNIZ LASER</span><h1>${names[page]}</h1><p>${{ dashboard: 'O cuidado começa com uma rotina bem organizada.', patients: 'Pessoas, procedimentos e histórico em um só lugar.', appointments: 'Organize sessões e acompanhe os próximos retornos.', quotes: 'Acompanhe cada oportunidade, do contato à decisão.', payments: 'Valores das sessões e recebimentos da clínica.', procedures: 'Intervalos sugeridos e preferências da clínica.', audit: 'Rastreabilidade das ações dos administradores.' }[page]}</p></div>${['dashboard', 'appointments', 'payments', 'quotes'].includes(page) ? `<label class="month-filter">Mês de referência<input id="month" type="month" value="${month}" required></label>` : ''}</div><section id="page-content">${content()}</section><footer>Marco Muniz Laser <span>Gestão com cuidado · Horários de Brasília</span></footer></div></main></div>`;
   root.querySelectorAll('[data-page]').forEach(
     (button) =>
       (button.onclick = () => {
@@ -153,9 +166,12 @@ function content() {
     const today = localDate(new Date());
     const daily = dailySchedule(data, today);
     const todayLabel = today.split('-').reverse().join('/');
-    const time = (value) => new Intl.DateTimeFormat('pt-BR', {
-      hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo',
-    }).format(new Date(value));
+    const time = (value) =>
+      new Intl.DateTimeFormat('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'America/Sao_Paulo',
+      }).format(new Date(value));
     const dailyPanel = `<section class="panel daily-panel" aria-labelledby="daily-title"><div class="panel-title"><div><h2 id="daily-title">Clientes do dia</h2><p class="hint">Hoje, ${todayLabel} · Horários de Brasília</p></div><button data-page-link="appointments" class="text-button">Ver agenda →</button></div><div class="daily-layout"><div class="table-wrap">${daily.sessions.length ? `<table aria-label="Clientes do dia"><thead><tr><th>Horário</th><th>Nome</th><th>Procedimento</th><th>Valor</th><th>Situação</th></tr></thead><tbody>${daily.sessions.map((a) => `<tr><td class="daily-time">${time(a.starts_at)}</td><td><button class="text-button patient-name" data-patient="${a.patient_id}">${escape(patient(a.patient_id)?.name)}</button></td><td>${escape(procedure(a.procedure_id)?.name)}</td><td class="daily-value">${money(a.price_cents)}</td><td>${badge(a.status)}</td></tr>`).join('')}</tbody></table>` : empty('Nenhum atendimento agendado ou realizado para hoje.')}</div><aside class="daily-forecast" aria-label="Faturamento previsto do dia"><span>Faturamento previsto do dia</span><strong>${money(daily.forecast)}</strong><small>${daily.sessions.length} atendimento${daily.sessions.length === 1 ? '' : 's'} · ${todayLabel}</small><p>Estimativa pela soma das sessões agendadas e realizadas de hoje. Cancelamentos não entram. O valor recebido está no Financeiro.</p></aside></div></section>`;
     const upcoming = data.appointments
       .filter((a) => a.status === 'agendado' && new Date(a.starts_at) >= new Date())
@@ -173,10 +189,10 @@ function content() {
       )
       .join(
         '',
-      )}</div>${dailyPanel}<div class="two-columns"><section class="panel"><div class="panel-title"><h2>Próximas sessões</h2><button data-page-link="appointments" class="text-button">Ver agenda →</button></div>${upcoming.length ? upcoming.map((a) => appointmentRow(a)).join('') : empty('Nenhuma sessão futura agendada.')}</section><section class="panel"><div class="panel-title"><h2>Orçamentos do mês</h2><span class="pill">${m.quotes} oportunidades</span></div><p class="hint">Status atual dos orçamentos criados no mês selecionado.</p><div class="pipeline">${statuses
+      )}</div>${dailyPanel}<div class="two-columns"><section class="panel"><div class="panel-title"><h2>Próximas sessões</h2><button data-page-link="appointments" class="text-button">Ver agenda →</button></div>${upcoming.length ? upcoming.map((a) => appointmentRow(a)).join('') : empty('Nenhuma sessão futura agendada.')}</section><section class="panel"><div class="panel-title"><h2>Orçamentos do mês</h2><span class="pill">${m.quotes} oportunidades</span></div><p class="hint">Status atual dos orçamentos pela data de orçamento no mês selecionado.</p><div class="pipeline">${quoteStatuses
       .map((status) => {
         const count = data.quotes.filter(
-          (q) => localDate(q.created_at).startsWith(month) && q.status === status,
+          (q) => quoteDay(q).startsWith(month) && quoteStatus(q) === status,
         ).length;
         return `<div><span>${escape(status)}</span><strong>${count}</strong><progress value="${count}" max="${Math.max(m.quotes, 1)}" aria-label="${escape(status)}"></progress></div>`;
       })
@@ -212,13 +228,7 @@ function content() {
     );
     return `<div class="toolbar"><p class="hint">Agenda compartilhada · Uma sala de atendimento</p><button class="primary" data-edit="appointments">+ Agendar sessão</button></div><div class="panel"><div class="panel-title"><h2>Sessões do mês</h2><span class="pill">${list.length} sessões</span></div>${list.length ? list.map((a) => appointmentRow(a, true)).join('') : empty('Nenhuma sessão neste mês.')}</div><div class="panel returns"><div class="panel-title"><h2>Previsão de retornos</h2><span class="pill">Confirmação manual</span></div><p class="hint">Sugestões a partir da última sessão realizada, sem novo horário reservado. A avaliação clínica pode ajustar o intervalo.</p>${returns.length ? returns.map((a) => `<div class="appointment-row"><div><strong>${escape(patient(a.patient_id)?.name)}</strong><small>${escape(procedure(a.procedure_id)?.name)} · A partir de ${suggestedReturn(a.starts_at, procedure(a.procedure_id).interval_days).split('-').reverse().join('/')}</small></div><button class="secondary small" data-return="${a.id}">Revisar retorno</button></div>`).join('') : empty('Sem retornos pendentes de planejamento.')}</div>`;
   }
-  if (page === 'quotes')
-    return `<div class="toolbar"><p class="hint">Todas as oportunidades · Valores em reais</p><button class="primary" data-edit="quotes">+ Novo orçamento</button></div><div class="kanban">${statuses
-      .map((status) => {
-        const quotes = data.quotes.filter((q) => q.status === status);
-        return `<section class="kanban-column"><h2>${escape(status)} <span>${quotes.length}</span></h2>${quotes.map((q) => `<article class="quote-card"><strong>${escape(patient(q.patient_id)?.name)}</strong><p>${escape(procedure(q.procedure_id)?.name)}</p><b>${money(q.amount_cents)}</b><small>${dateTime(q.created_at)}</small>${action('Atualizar orçamento', 'quotes', q.id)}</article>`).join('') || '<p class="hint">Nenhum orçamento</p>'}</section>`;
-      })
-      .join('')}</div>`;
+  if (page === 'quotes') return quotesContent();
   if (page === 'payments') {
     const m = monthlyMetrics(data, month);
     const pending = data.appointments.filter(
@@ -248,6 +258,114 @@ function content() {
   if (page === 'audit')
     return `<section class="panel"><div class="panel-title"><h2>Últimas 100 atividades</h2></div><p class="hint">A auditoria registra autor, ação e campos alterados, sem duplicar informações clínicas. Eventos de acesso são registrados pela API.</p><div class="table-wrap"><table><thead><tr><th>Quando</th><th>Autor (ID)</th><th>Ação</th><th>Recurso / campos</th></tr></thead><tbody>${data.audit_events.map((e) => `<tr><td>${dateTime(e.created_at)}</td><td class="mono">${escape(e.actor_id || 'Operação administrativa')}</td><td>${escape(e.action)}</td><td>${escape(e.entity)}<small>${escape((e.changed_fields || []).join(', '))}</small></td></tr>`).join('')}</tbody></table></div></section>`;
 }
+function quotesContent() {
+  const metrics = quoteMetrics(data.quotes, month);
+  const reminders = quoteReminders(data.quotes, data.quote_contacts);
+  const months = [...new Set([month, ...data.quotes.map((q) => quoteDay(q).slice(0, 7))])]
+    .sort()
+    .reverse();
+  const filtered = data.quotes.filter((q) =>
+    `${patient(q.patient_id)?.name} ${patient(q.patient_id)?.phone} ${procedure(q.procedure_id)?.name}`
+      .toLowerCase()
+      .includes(search.toLowerCase()),
+  );
+  return `<div class="metrics quote-metrics">${[
+    ['Orçamentos no mês', metrics.count],
+    ['Valores orçados', money(metrics.amount)],
+    ['Fechamentos', metrics.closed],
+    ['Conversão', `${metrics.conversion}%`],
+    ['Valor fechado', money(metrics.closedAmount)],
+  ]
+    .map(
+      ([label, value]) =>
+        `<article class="metric"><span>${label}</span><strong>${value}</strong></article>`,
+    )
+    .join('')}</div>
+  <p class="hint">Indicadores pela data do orçamento em ${month.split('-').reverse().join('/')}, usando o status atual. Valores orçados e fechados não são receita recebida.</p>
+  <div class="toolbar"><label class="search">Buscar cliente ou procedimento<input id="search" type="search" value="${escape(search)}" placeholder="Nome, telefone ou procedimento"></label><button class="primary" data-edit="quotes">+ Novo orçamento</button></div>
+  <p class="hint">CRM · Todas as datas. Os status anteriores “novo”, “orçamento enviado” e “sem resposta” aparecem em Aguardando.</p>
+  <div class="kanban quotes-kanban">${quoteStatuses
+    .map((status) => {
+      const list = filtered.filter((q) => quoteStatus(q) === status);
+      return `<section class="kanban-column"><h2>${status[0].toUpperCase() + status.slice(1)} <span>${list.length}</span></h2>${list.map((q) => `<article class="quote-card"><strong>${escape(patient(q.patient_id)?.name)}</strong><p>${escape(procedure(q.procedure_id)?.name)}</p><b>${money(q.amount_cents)}</b><small>${q.session_price_cents == null ? 'Valor por sessão não informado' : `${money(q.session_price_cents)} por sessão`} · ${quoteDay(q).split('-').reverse().join('/')}</small>${!quoteStatuses.includes(q.status) ? `<small>Etapa anterior: ${escape(q.status)}</small>` : ''}<div class="quote-actions"><button class="secondary small" data-quote-view="${q.id}">Visualizar / PDF</button>${action('Editar', 'quotes', q.id)}<button class="text-button" data-quote-share="${q.id}">Compartilhar por WhatsApp</button></div></article>`).join('') || '<p class="hint">Nenhum orçamento</p>'}</section>`;
+    })
+    .join('')}</div>
+  <section class="panel returns"><div class="panel-title"><h2>Retomar contato · 7 e 15 dias</h2><span class="pill">${reminders.length} pendentes</span></div><p class="hint">Todas as datas. As mensagens são sugestões e o envio é manual. Ao fechar ou perder o orçamento, seus lembretes deixam de aparecer. Aos 15 dias, a segunda etapa substitui um lembrete de 7 dias ainda pendente.</p>${reminders.map(({ quote: q, stage, days }) => `<div class="appointment-row quote-reminder"><div><strong>${escape(patient(q.patient_id)?.name)}</strong><small>${escape(procedure(q.procedure_id)?.name)} · ${days} dias · Retomada de ${stage} dias</small></div><div class="quote-actions"><button class="secondary small" data-quote-share="${q.id}" data-stage="${stage}">Revisar mensagem</button><button class="text-button" data-contact-done="${q.id}" data-stage="${stage}">Marcar contato realizado</button></div></div>`).join('') || empty('Nenhum acompanhamento pendente.')}</section>
+  <section class="panel returns"><h2>Resultados por mês</h2><p class="hint">Coortes pela data do orçamento; fechamento reflete o status atual, não a data em que houve a decisão.</p><div class="table-wrap"><table><thead><tr><th>Mês</th><th>Orçamentos</th><th>Orçado</th><th>Fechados</th><th>Valor fechado</th><th>Perdidos</th><th>Conversão</th></tr></thead><tbody>${months
+    .map((m) => {
+      const v = quoteMetrics(data.quotes, m);
+      return `<tr><td>${m.split('-').reverse().join('/')}</td><td>${v.count}</td><td>${money(v.amount)}</td><td>${v.closed}</td><td>${money(v.closedAmount)}</td><td>${v.lost}</td><td>${v.conversion}%</td></tr>`;
+    })
+    .join('')}</tbody></table></div></section>`;
+}
+
+async function openQuote(id, shareStage = null) {
+  try {
+    if (!demo) data = await api('data');
+    const q = data.quotes.find((q) => q.id === id);
+    if (!q) throw new Error('Orçamento não encontrado. Atualize os dados.');
+    if (
+      shareStage &&
+      !quoteReminders([q], data.quote_contacts).some((r) => r.stage === shareStage)
+    ) {
+      render();
+      throw new Error('Este acompanhamento não está mais pendente.');
+    }
+    const customer = patient(q.patient_id),
+      treatment = procedure(q.procedure_id);
+    dialog.classList.add('quote-preview');
+    if (shareStage === null) {
+      dialog.innerHTML = `<div class="quote-controls"><h2 id="dialog-title">Visualizar orçamento</h2><button id="quote-close" class="secondary">Fechar</button><button id="quote-print" class="primary">Exportar PDF / imprimir</button></div><p class="hint quote-controls">Na janela de impressão, escolha “Salvar como PDF”. O arquivo conterá os dados deste cliente; guarde-o em local privado.</p>${quoteDocument(q, customer, treatment)}`;
+      dialog.querySelector('#quote-print').onclick = () => {
+        document.body.classList.add('printing-quote');
+        window.print();
+      };
+    } else {
+      const message = quoteMessage(q, customer, treatment, shareStage);
+      const url = whatsappLink(customer.phone, message);
+      dialog.innerHTML = `<div class="panel-title"><h2 id="dialog-title">Revisar mensagem do WhatsApp</h2><button id="quote-close" class="secondary">Fechar</button></div><p>Destinatário: <strong>${escape(customer.name)}</strong> · ${escape(normalizePhone(customer.phone))}</p><p class="quote-description">${escape(message)}</p><p class="hint">Ao abrir, o texto e o telefone serão enviados ao WhatsApp. Confira o destinatário antes de enviar. Não há envio automático nem anexo de PDF; anexe o arquivo manualmente se necessário.</p><a class="primary whatsapp-link" href="${escape(url)}" target="_blank" rel="noopener noreferrer">Abrir WhatsApp com esta mensagem</a>`;
+    }
+    dialog.querySelector('#quote-close').onclick = () => dialog.close();
+    dialog.showModal();
+  } catch (error) {
+    notify(error.message, true);
+  }
+}
+
+async function recordQuoteContact(id, stage, button) {
+  button.disabled = true;
+  try {
+    if (demo) {
+      if (
+        !quoteReminders(data.quotes, data.quote_contacts).some(
+          (r) => r.quote.id === id && r.stage === stage,
+        )
+      )
+        throw new Error('Acompanhamento indisponível.');
+      data.quote_contacts.push({
+        id: crypto.randomUUID(),
+        quote_id: id,
+        stage,
+        created_at: new Date().toISOString(),
+      });
+    } else {
+      await api('quote_contacts', 'POST', { quote_id: id, stage });
+      data = await api('data');
+    }
+    render();
+    notify('Contato registrado. Esta etapa não será lembrada novamente.');
+  } catch (error) {
+    notify(error.message, true);
+    button.disabled = false;
+  }
+}
+window.addEventListener('afterprint', () => document.body.classList.remove('printing-quote'));
+dialog.addEventListener('close', () => {
+  document.body.classList.remove('printing-quote');
+  dialog.classList.remove('quote-preview');
+  dialog.replaceChildren();
+});
+
 function appointmentRow(a, edit = false) {
   const date = new Date(a.starts_at);
   return `<div class="appointment-row"><div class="date-tile"><strong>${new Intl.DateTimeFormat('pt-BR', { day: '2-digit', timeZone: 'America/Sao_Paulo' }).format(date)}</strong><span>${new Intl.DateTimeFormat('pt-BR', { month: 'short', timeZone: 'America/Sao_Paulo' }).format(date)}</span></div><div class="appointment-info"><strong>${escape(patient(a.patient_id)?.name)}</strong><small>${escape(procedure(a.procedure_id)?.name)}</small><small>${dateTime(a.starts_at)} · ${a.duration_minutes} min · ${money(a.price_cents)}</small></div>${badge(a.status)}${edit ? action('Gerenciar', 'appointments', a.id) : ''}</div>`;
@@ -266,6 +384,21 @@ function patientDetail() {
   }</section>`;
 }
 function bindContent() {
+  root
+    .querySelectorAll('[data-quote-view]')
+    .forEach((b) => (b.onclick = () => openQuote(b.dataset.quoteView)));
+  root
+    .querySelectorAll('[data-quote-share]')
+    .forEach(
+      (b) => (b.onclick = () => openQuote(b.dataset.quoteShare, Number(b.dataset.stage) || 0)),
+    );
+  root
+    .querySelectorAll('[data-contact-done]')
+    .forEach(
+      (b) =>
+        (b.onclick = () => recordQuoteContact(b.dataset.contactDone, Number(b.dataset.stage), b)),
+    );
+
   root
     .querySelectorAll('[data-edit]')
     .forEach((b) => (b.onclick = () => openEditor(b.dataset.edit, b.dataset.id)));
@@ -311,8 +444,9 @@ function bindContent() {
   });
 }
 function openEditor(entity, id, defaults = {}) {
+  dialog.classList.remove('quote-preview');
   const submissionId = crypto.randomUUID();
-  if (['appointments', 'quotes', 'notes'].includes(entity) && !data.patients.length)
+  if (['appointments', 'notes'].includes(entity) && !data.patients.length)
     return notify('Cadastre um paciente primeiro.', true);
   const existing = id ? data[entity].find((x) => x.id === id) : null;
   const record = existing || defaults;
@@ -398,20 +532,47 @@ function openEditor(entity, id, defaults = {}) {
       '<p class="hint">Reagende alterando data e horário. Para cancelar, selecione “cancelado”. Só marque “realizado” após o atendimento. Salvar confirma sua escolha.</p>';
   if (entity === 'quotes')
     fields =
-      patientSelect() +
+      select(
+        'patient_id',
+        'Cliente',
+        [
+          ...(id ? [] : [['new', '+ Cadastrar novo cliente']]),
+          ...data.patients.map((p) => [p.id, `${p.name} · ${p.phone}`]),
+        ],
+        record.patient_id || (data.patients[0]?.id ?? 'new'),
+      ) +
+      (!id
+        ? '<div id="new-quote-customer"><label>Nome completo<input name="name" minlength="2" maxlength="120" autocomplete="off"></label><label>Telefone com DDD<input name="phone" type="tel" pattern="[0-9]{10,13}" maxlength="13" autocomplete="off"></label></div>'
+        : '') +
       procedureSelect() +
+      `<label>Descrição do orçamento<textarea name="description" rows="4" maxlength="4000">${escape(record.description || '')}</textarea></label>` +
       input(
-        'amount',
-        'Valor do orçamento (R$)',
+        'session_price',
+        'Valor por sessão (R$)',
         'number',
-        (record.amount_cents ?? 0) / 100,
+        record.session_price_cents == null ? '' : record.session_price_cents / 100,
         'min="0" max="1000000" step="0.01"',
+      ) +
+      (id
+        ? input(
+            'amount',
+            'Valor total orçado (R$) · preservado do CRM',
+            'number',
+            record.amount_cents / 100,
+            'min="0" max="1000000" step="0.01"',
+          )
+        : '<p class="hint">Novo orçamento referente a uma sessão. O valor total poderá ser ajustado ao editar, se houver uma proposta para várias sessões.</p>') +
+      input(
+        'quote_date',
+        'Data do orçamento',
+        'date',
+        record.id ? quoteDay(record) : localDate(new Date()),
       ) +
       select(
         'status',
         'Status',
-        statuses.map((s) => [s, s]),
-        record.status || 'novo',
+        quoteStatuses.map((s) => [s, s[0].toUpperCase() + s.slice(1)]),
+        quoteStatus(record),
       );
   if (entity === 'payments') {
     const pending = data.appointments.filter(
@@ -457,11 +618,40 @@ function openEditor(entity, id, defaults = {}) {
   dialog.querySelector('#close-dialog').onclick = () => dialog.close();
   dialog.querySelector('#cancel-dialog').onclick = () => dialog.close();
   dialog.showModal();
+  if (entity === 'quotes' && id && record.session_price_cents == null)
+    dialog.querySelector('[name="session_price"]').required = false;
+  if (entity === 'quotes' && !id) {
+    const selector = dialog.querySelector('[name="patient_id"]');
+    const updateCustomer = () => {
+      const isNew = selector.value === 'new';
+      const group = dialog.querySelector('#new-quote-customer');
+      group.hidden = !isNew;
+      group.querySelectorAll('input').forEach((input) => {
+        input.disabled = !isNew;
+        input.required = isNew;
+      });
+    };
+    selector.onchange = updateCustomer;
+    updateCustomer();
+  }
   dialog.querySelector('form').onsubmit = async (event) => {
     event.preventDefault();
     const button = dialog.querySelector('#save');
     button.disabled = true;
     const values = Object.fromEntries(new FormData(event.target));
+    if (entity === 'quotes') {
+      values.session_price_cents =
+        values.session_price === '' && id ? null : Math.round(Number(values.session_price) * 100);
+      delete values.session_price;
+      if (!id) {
+        values.intake_key = submissionId;
+        values.amount_cents = values.session_price_cents;
+        if (values.patient_id === 'new') values.patient_id = null;
+      } else if (quoteStatus(record) === values.status) {
+        // Editing description must not erase a legacy pipeline status.
+        values.status = record.status;
+      }
+    }
     if (entity === 'payments') values.idempotency_key = submissionId;
     if (entity === 'notes') values.patient_id = patientId;
     if ('price' in values) {
@@ -479,10 +669,14 @@ function openEditor(entity, id, defaults = {}) {
     try {
       if (demo) saveDemo(entity, id, values);
       else {
-        await api(`${entity}${id ? `/${id}` : ''}`, id ? 'PATCH' : 'POST', {
-          ...values,
-          ...(id ? { version: record.version } : {}),
-        });
+        await api(
+          entity === 'quotes' && !id ? 'quote-intake' : `${entity}${id ? `/${id}` : ''}`,
+          id ? 'PATCH' : 'POST',
+          {
+            ...values,
+            ...(id ? { version: record.version } : {}),
+          },
+        );
       }
       // Close after a confirmed mutation even if the following read fails: do not invite duplicate receipts.
       dialog.close();
@@ -509,6 +703,33 @@ function openEditor(entity, id, defaults = {}) {
   };
 }
 function saveDemo(entity, id, values) {
+  if (entity === 'quotes' && !id) {
+    if (data.quotes.some((q) => q.intake_key === values.intake_key)) return;
+    if (!values.patient_id) {
+      const matches = data.patients.filter(
+        (p) => normalizePhone(p.phone) === normalizePhone(values.phone),
+      );
+      if (
+        matches.length > 1 ||
+        (matches.length === 1 && normalizeName(matches[0].name) !== normalizeName(values.name))
+      )
+        throw new Error('Telefone já cadastrado ou ambíguo. Selecione o cliente existente.');
+      if (matches.length) values.patient_id = matches[0].id;
+      else {
+        values.patient_id = crypto.randomUUID();
+        data.patients.push({
+          id: values.patient_id,
+          name: values.name.trim(),
+          phone: normalizePhone(values.phone),
+          procedure_id: values.procedure_id,
+          created_at: new Date().toISOString(),
+          version: crypto.randomUUID(),
+        });
+      }
+    }
+    delete values.name;
+    delete values.phone;
+  }
   if (entity === 'appointments') {
     const start = Date.parse(values.starts_at),
       end = start + values.duration_minutes * 60000;
