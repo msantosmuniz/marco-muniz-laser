@@ -20,8 +20,10 @@ import {
   normalizeName,
 } from './quotes.js';
 import { createApiClient, SessionChangedError } from './api-client.js';
+import { pickContact, supportsContactPicker } from './contacts.js';
 const root = document.querySelector('#root');
 const dialog = document.querySelector('#editor');
+const customerDialog = document.querySelector('#customer-editor');
 const notice = document.querySelector('#notice');
 const escape = (value) =>
   String(value ?? '').replace(
@@ -106,6 +108,8 @@ function clearWorkspace() {
   search = '';
   dialog.close();
   dialog.replaceChildren();
+  customerDialog.close();
+  customerDialog.replaceChildren();
   document.body.classList.remove('printing-quote');
   dialog.classList.remove('quote-preview');
   login();
@@ -226,7 +230,7 @@ function content() {
             new Date(next.starts_at) > new Date(a.starts_at),
         ),
     );
-    return `<div class="toolbar"><p class="hint">Agenda compartilhada · Uma sala de atendimento</p><button class="primary" data-edit="appointments">+ Agendar sessão</button></div><div class="panel"><div class="panel-title"><h2>Sessões do mês</h2><span class="pill">${list.length} sessões</span></div>${list.length ? list.map((a) => appointmentRow(a, true)).join('') : empty('Nenhuma sessão neste mês.')}</div><div class="panel returns"><div class="panel-title"><h2>Previsão de retornos</h2><span class="pill">Confirmação manual</span></div><p class="hint">Sugestões a partir da última sessão realizada, sem novo horário reservado. A avaliação clínica pode ajustar o intervalo.</p>${returns.length ? returns.map((a) => `<div class="appointment-row"><div><strong>${escape(patient(a.patient_id)?.name)}</strong><small>${escape(procedure(a.procedure_id)?.name)} · A partir de ${suggestedReturn(a.starts_at, procedure(a.procedure_id).interval_days).split('-').reverse().join('/')}</small></div><button class="secondary small" data-return="${a.id}">Revisar retorno</button></div>`).join('') : empty('Sem retornos pendentes de planejamento.')}</div>`;
+    return `<div class="toolbar"><p class="hint">Agenda compartilhada · Uma sala de atendimento</p><div class="customer-actions"><button class="secondary" data-quick-customer>+ Cadastrar cliente</button><button class="primary" data-edit="appointments">+ Agendar sessão</button></div></div><div class="panel"><div class="panel-title"><h2>Sessões do mês</h2><span class="pill">${list.length} sessões</span></div>${list.length ? list.map((a) => appointmentRow(a, true)).join('') : empty('Nenhuma sessão neste mês.')}</div><div class="panel returns"><div class="panel-title"><h2>Previsão de retornos</h2><span class="pill">Confirmação manual</span></div><p class="hint">Sugestões a partir da última sessão realizada, sem novo horário reservado. A avaliação clínica pode ajustar o intervalo.</p>${returns.length ? returns.map((a) => `<div class="appointment-row"><div><strong>${escape(patient(a.patient_id)?.name)}</strong><small>${escape(procedure(a.procedure_id)?.name)} · A partir de ${suggestedReturn(a.starts_at, procedure(a.procedure_id).interval_days).split('-').reverse().join('/')}</small></div><button class="secondary small" data-return="${a.id}">Revisar retorno</button></div>`).join('') : empty('Sem retornos pendentes de planejamento.')}</div>`;
   }
   if (page === 'quotes') return quotesContent();
   if (page === 'payments') {
@@ -282,7 +286,7 @@ function quotesContent() {
     )
     .join('')}</div>
   <p class="hint">Indicadores pela data do orçamento em ${month.split('-').reverse().join('/')}, usando o status atual. Valores orçados e fechados não são receita recebida.</p>
-  <div class="toolbar"><label class="search">Buscar cliente ou procedimento<input id="search" type="search" value="${escape(search)}" placeholder="Nome, telefone ou procedimento"></label><button class="primary" data-edit="quotes">+ Novo orçamento</button></div>
+  <div class="toolbar"><label class="search">Buscar cliente ou procedimento<input id="search" type="search" value="${escape(search)}" placeholder="Nome, telefone ou procedimento"></label><div class="customer-actions"><button class="secondary" data-quick-customer>+ Cadastrar cliente</button><button class="primary" data-edit="quotes">+ Novo orçamento</button></div></div>
   <p class="hint">CRM · Todas as datas. Os status anteriores “novo”, “orçamento enviado” e “sem resposta” aparecem em Aguardando.</p>
   <div class="kanban quotes-kanban">${quoteStatuses
     .map((status) => {
@@ -384,6 +388,9 @@ function patientDetail() {
   }</section>`;
 }
 function bindContent() {
+  document.querySelectorAll('[data-quick-customer]').forEach((button) => {
+    button.onclick = () => openCustomerEditor();
+  });
   root
     .querySelectorAll('[data-quote-view]')
     .forEach((b) => (b.onclick = () => openQuote(b.dataset.quoteView)));
@@ -443,10 +450,131 @@ function bindContent() {
     input.setSelectionRange(pos, pos);
   });
 }
+function openCustomerEditor({ procedureId, onSaved, importContact = false } = {}) {
+  customerDialog.innerHTML = `<form><div class="panel-title"><h2 id="customer-title">Cadastrar cliente</h2><button type="button" data-close class="text-button" aria-label="Fechar cadastro de cliente">✕</button></div>
+    <button type="button" class="secondary" data-pick>Buscar cliente na agenda do celular</button>
+    <p class="hint">${supportsContactPicker() ? 'Escolha um contato e confira nome e telefone antes de salvar. Somente o contato escolhido será compartilhado.' : 'Este navegador não oferece acesso aos contatos. Copie nome e telefone da sua agenda e preencha abaixo.'}</p>
+    <label>Nome completo<input name="name" minlength="2" maxlength="120" autocomplete="off" required></label>
+    <div data-phones hidden></div><label>Telefone com DDD (somente números)<input name="phone" type="tel" inputmode="numeric" pattern="[0-9]{10,13}" maxlength="13" autocomplete="off" required></label>
+    <label>Procedimento<select name="procedure_id" required>${data.procedures.map((p) => `<option value="${escape(p.id)}" ${p.id === procedureId ? 'selected' : ''}>${escape(p.name)}</option>`).join('')}</select></label>
+    <p class="hint">Salvar cadastra o cliente na clínica. O orçamento ou agendamento será confirmado separadamente.</p>
+    <p class="hint" data-contact-status role="status"></p><p class="form-error" role="alert"></p>
+    <div class="dialog-actions"><button type="button" class="secondary" data-close>Cancelar</button><button class="primary" data-save>Salvar cliente</button></div></form>`;
+  const form = customerDialog.querySelector('form');
+  const workspace = data;
+  const current = () => data === workspace && customerDialog.open && form.isConnected;
+  let saving = false;
+  customerDialog.oncancel = (event) => {
+    if (saving) event.preventDefault();
+  };
+  form.querySelectorAll('[data-close]').forEach((button) => {
+    button.onclick = () => {
+      customerDialog.close();
+      form.remove();
+    };
+  });
+  const pickButton = form.querySelector('[data-pick]');
+  const errorBox = form.querySelector('.form-error');
+  const status = form.querySelector('[data-contact-status]');
+  const chooseContact = async () => {
+    pickButton.disabled = true;
+    form.querySelector('[data-save]').disabled = true;
+    errorBox.textContent = '';
+    try {
+      const contact = await pickContact();
+      if (!current() || !contact) return;
+      form.elements.name.value = contact.name;
+      form.elements.phone.value = contact.phones.length === 1 ? contact.phones[0] : '';
+      const phones = form.querySelector('[data-phones]');
+      phones.replaceChildren();
+      phones.hidden = contact.phones.length < 2;
+      if (contact.phones.length > 1) {
+        const label = document.createElement('label');
+        label.textContent = 'Este contato tem mais de um telefone. Escolha qual usar';
+        const select = document.createElement('select');
+        select.add(new Option('Selecione um telefone', ''));
+        contact.phones.forEach((phone) => select.add(new Option(phone, phone)));
+        select.onchange = () => {
+          form.elements.phone.value = select.value;
+        };
+        label.append(select);
+        phones.append(label);
+      }
+      status.textContent = contact.phones.length
+        ? 'Confira os dados importados antes de salvar.'
+        : 'Contato sem telefone válido com DDD. Preencha o número manualmente.';
+      form.elements.name.focus();
+    } catch (error) {
+      if (current()) errorBox.textContent = error.message;
+    } finally {
+      if (current()) {
+        pickButton.disabled = false;
+        form.querySelector('[data-save]').disabled = false;
+      }
+    }
+  };
+  pickButton.onclick = chooseContact;
+  form.onsubmit = async (event) => {
+    event.preventDefault();
+    if (saving || pickButton.disabled) return;
+    saving = true;
+    errorBox.textContent = '';
+    form.querySelectorAll('button').forEach((button) => {
+      button.disabled = true;
+    });
+    const values = Object.fromEntries(new FormData(form));
+    try {
+      let customer;
+      if (demo) {
+        const matches = data.patients.filter(
+          (p) => normalizePhone(p.phone) === normalizePhone(values.phone),
+        );
+        if (
+          matches.length > 1 ||
+          (matches.length === 1 && normalizeName(matches[0].name) !== normalizeName(values.name))
+        )
+          throw new Error(
+            'Telefone já cadastrado ou ambíguo. Confira e selecione o cliente existente.',
+          );
+        customer = matches[0];
+        if (!customer) {
+          saveDemo('patients', null, {
+            ...values,
+            name: values.name.trim(),
+            phone: normalizePhone(values.phone),
+          });
+          customer = data.patients.at(-1);
+        }
+      } else customer = await api('patient-intake', 'POST', values);
+      if (!current()) return;
+      const alreadyKnown = data.patients.some((p) => p.id === customer.id);
+      if (!alreadyKnown) data.patients.push(customer);
+      customerDialog.close();
+      form.remove();
+      if (onSaved) onSaved(customer);
+      else render();
+      notify('Cliente salvo ou já cadastrado. Confira a seleção antes de continuar.');
+    } catch (error) {
+      if (current()) errorBox.textContent = error.message;
+    } finally {
+      saving = false;
+      form.querySelectorAll('button').forEach((button) => {
+        button.disabled = false;
+      });
+    }
+  };
+  customerDialog.showModal();
+  // Preserve the original click activation for the device's contact picker.
+  if (importContact) void chooseContact();
+}
+customerDialog.addEventListener('close', () => {
+  if (!customerDialog.open) customerDialog.replaceChildren();
+});
+
 function openEditor(entity, id, defaults = {}) {
   dialog.classList.remove('quote-preview');
   const submissionId = crypto.randomUUID();
-  if (['appointments', 'notes'].includes(entity) && !data.patients.length)
+  if (entity === 'notes' && !data.patients.length)
     return notify('Cadastre um paciente primeiro.', true);
   const existing = id ? data[entity].find((x) => x.id === id) : null;
   const record = existing || defaults;
@@ -458,7 +586,9 @@ function openEditor(entity, id, defaults = {}) {
     select(
       'patient_id',
       'Paciente',
-      data.patients.map((p) => [p.id, p.name]),
+      data.patients.length
+        ? data.patients.map((p) => [p.id, `${p.name} · ${p.phone}`])
+        : [['', 'Cadastre um cliente para continuar']],
     );
   const procedureSelect = () =>
     select(
@@ -617,6 +747,28 @@ function openEditor(entity, id, defaults = {}) {
   dialog.innerHTML = `<form id="edit-form"><div class="panel-title"><h2 id="dialog-title">${id ? 'Editar' : 'Registrar'} ${labels[entity]}</h2><button type="button" id="close-dialog" class="text-button" aria-label="Fechar">✕</button></div>${fields}<p class="form-error" id="form-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary" id="cancel-dialog">Cancelar</button><button class="primary" id="save">${entity === 'appointments' ? 'Confirmar e salvar' : 'Salvar'}</button></div></form>`;
   dialog.querySelector('#close-dialog').onclick = () => dialog.close();
   dialog.querySelector('#cancel-dialog').onclick = () => dialog.close();
+  if (['appointments', 'quotes'].includes(entity)) {
+    const selector = dialog.querySelector('[name="patient_id"]');
+    const actions = document.createElement('div');
+    actions.className = 'customer-actions';
+    actions.innerHTML =
+      '<button type="button" class="secondary" data-register-customer>+ Cadastrar cliente</button><button type="button" class="secondary" data-import-customer>Buscar cliente na agenda do celular</button>';
+    selector.closest('label').after(actions);
+    const openCustomer = (importContact) =>
+      openCustomerEditor({
+        procedureId: dialog.querySelector('[name="procedure_id"]').value,
+        onSaved: (customer) => {
+          if (!selector.isConnected || !dialog.open) return;
+          if (![...selector.options].some((option) => option.value === customer.id))
+            selector.add(new Option(`${customer.name} · ${customer.phone}`, customer.id));
+          selector.value = customer.id;
+          selector.dispatchEvent(new Event('change'));
+        },
+        importContact,
+      });
+    actions.querySelector('[data-register-customer]').onclick = () => openCustomer(false);
+    actions.querySelector('[data-import-customer]').onclick = () => openCustomer(true);
+  }
   dialog.showModal();
   if (entity === 'quotes' && id && record.session_price_cents == null)
     dialog.querySelector('[name="session_price"]').required = false;
