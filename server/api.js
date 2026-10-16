@@ -1,4 +1,4 @@
-import { HttpError, validate, uuid, schemas } from './validation.js';
+import { HttpError, validate, validateQuoteIntake, uuid, schemas } from './validation.js';
 const accessCookie = '__Host-mml_access';
 const refreshCookie = '__Host-mml_refresh';
 const tables = [
@@ -7,6 +7,7 @@ const tables = [
   'notes',
   'appointments',
   'quotes',
+  'quote_contacts',
   'payments',
   'audit_events',
 ];
@@ -77,7 +78,10 @@ export async function handleRequest(request, env, fetcher = fetch) {
       throw new HttpError(403, 'Origem não autorizada.');
     const path = url.pathname.replace(/^\/api\/?/, '');
     const sb = async (route, { method = 'GET', body, token, prefer, range } = {}) => {
-      const headers = { apikey: env.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' };
+      const headers = {
+        apikey: env.SUPABASE_ANON_KEY,
+        'Content-Type': 'application/json',
+      };
       if (token) headers.Authorization = `Bearer ${token}`;
       if (prefer) headers.Prefer = prefer;
       if (range) headers.Range = range;
@@ -116,7 +120,11 @@ export async function handleRequest(request, env, fetcher = fetch) {
       return user;
     };
     const log = (token, action) =>
-      sb('/rest/v1/rpc/log_activity', { method: 'POST', token, body: { event_action: action } });
+      sb('/rest/v1/rpc/log_activity', {
+        method: 'POST',
+        token,
+        body: { event_action: action },
+      });
     if ((path === 'login' || path === 'refresh') && request.method === 'POST') {
       const input = await readJson(request);
       let body;
@@ -179,7 +187,10 @@ export async function handleRequest(request, env, fetcher = fetch) {
           // An audit outage or removed admin permission must not prevent Auth
           // revocation. The RPC independently enforces its admin policy.
           await log(logoutToken, 'logout').catch(() => {});
-          await sb('/auth/v1/logout?scope=local', { method: 'POST', token: logoutToken });
+          await sb('/auth/v1/logout?scope=local', {
+            method: 'POST',
+            token: logoutToken,
+          });
           revoked = true;
         }
       } catch {
@@ -188,6 +199,15 @@ export async function handleRequest(request, env, fetcher = fetch) {
       return response({ ok: true, revoked }, 200, null);
     }
     const user = await authorize(token);
+    if (path === 'quote-intake' && request.method === 'POST') {
+      const payload = validateQuoteIntake(await readJson(request));
+      const result = await sb('/rest/v1/rpc/create_quote_intake', {
+        method: 'POST',
+        token,
+        body: { payload },
+      });
+      return response(result, 201);
+    }
     if (path === 'session' && request.method === 'GET')
       return response({ user: { email: user.email } });
     if (path === 'data' && request.method === 'GET') {
@@ -217,7 +237,10 @@ export async function handleRequest(request, env, fetcher = fetch) {
           return [table, records];
         }),
       );
-      return response({ ...Object.fromEntries(entries), user: { email: user.email } });
+      return response({
+        ...Object.fromEntries(entries),
+        user: { email: user.email },
+      });
     }
     const [entity, id, extra] = path.split('/');
     if (!Object.hasOwn(schemas, entity) || extra)
@@ -226,7 +249,10 @@ export async function handleRequest(request, env, fetcher = fetch) {
       throw new HttpError(405, 'Método não permitido.');
     if (request.method === 'POST' && (id || entity === 'procedures'))
       throw new HttpError(405, 'Operação não permitida.');
-    if (request.method === 'PATCH' && (!uuid(id) || ['notes', 'payments'].includes(entity)))
+    if (
+      request.method === 'PATCH' &&
+      (!uuid(id) || ['notes', 'payments', 'quote_contacts'].includes(entity))
+    )
       throw new HttpError(405, 'Operação não permitida.');
     const input = await readJson(request);
     const version = input?.version;
