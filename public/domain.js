@@ -19,7 +19,9 @@ export function dailySchedule(data, day) {
 }
 export function monthlyMetrics(data, month) {
   const inMonth = (value) => value && localDate(value).startsWith(month);
-  const quotes = data.quotes.filter((q) => inMonth(q.created_at));
+  const quotes = data.quotes.filter((q) =>
+    q.quote_date ? q.quote_date.startsWith(month) : inMonth(q.created_at),
+  );
   const sessions = data.appointments.filter(
     (a) => a.status === 'realizado' && inMonth(a.starts_at),
   );
