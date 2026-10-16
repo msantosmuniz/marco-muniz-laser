@@ -54,10 +54,16 @@ export function createDemo() {
       patient_id: p.id,
       procedure_id: p.procedure_id,
       amount_cents: 90000 + i * 10000,
+      session_price_cents: 30000 + i * 5000,
+      description: 'Proposta fictícia personalizada. Plano de sessões a definir na avaliação.',
+      quote_date: new Date(Date.now() - (i === 1 ? 8 : i === 2 ? 16 : 2) * 86400000)
+        .toISOString()
+        .slice(0, 10),
       status: ['fechado', 'orçamento enviado', 'novo', 'sem resposta'][i],
       created_at: date(2 + i),
       version: crypto.randomUUID(),
     })),
+    quote_contacts: [],
     payments: [
       {
         id: id(50),

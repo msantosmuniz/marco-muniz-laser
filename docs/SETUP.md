@@ -56,3 +56,7 @@ Não houve publicação nesta entrega. Para uma futura homologação autorizada:
 ## 5. Testes automatizados
 
 `node --test tests/*.test.mjs` verifica domínio, API com Supabase simulado, migração real e políticas SQL com PostgreSQL em memória (PGlite). O teste cria apenas o esquema mínimo de Auth e papéis para exercer RLS. Não testa o serviço Supabase Auth real, o runtime Pages, entrega de cookies pelo edge, concorrência entre conexões PostgreSQL independentes ou backup. O roteiro acima cobre os pontos de integração restantes.
+
+# Atualização do módulo Orçamentos
+
+Para uma instalação existente, consulte [Orçamentos: operação e ativação](QUOTES.md). A migração `202610160001_quotes.sql` deve ser aplicada **depois da inicial e antes do novo deploy**. Não execute novamente o seed. Para instalação nova, aplique ambas as migrações em ordem.

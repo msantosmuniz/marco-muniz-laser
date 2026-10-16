@@ -8,11 +8,18 @@ const env = {
 };
 const userId = '00000000-0000-4000-8000-000000000001';
 const json = (body, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 function req(path, method = 'GET', body, headers = {}) {
   return new Request(`https://app.example/api/${path}`, {
     method,
-    headers: { Origin: env.APP_ORIGIN, 'Content-Type': 'application/json', ...headers },
+    headers: {
+      Origin: env.APP_ORIGIN,
+      'Content-Type': 'application/json',
+      ...headers,
+    },
     body: body ? JSON.stringify(body) : undefined,
   });
 }
@@ -22,6 +29,67 @@ const authMock = (url) =>
     : url.includes('/admins?')
       ? json([{ user_id: userId }])
       : json([]);
+test('intake e acompanhamento exigem sessão e administrador', async () => {
+  for (const path of ['quote-intake', 'quote_contacts', 'patient-intake']) {
+    assert.equal((await handleRequest(req(path, 'POST', {}), env, authMock)).status, 401);
+    assert.equal(
+      (
+        await handleRequest(
+          req(path, 'POST', {}, { cookie: '__Host-mml_access=test' }),
+          env,
+          async (url) => (url.endsWith('/user') ? json({ id: userId }) : json([])),
+        )
+      ).status,
+      403,
+    );
+  }
+});
+test('intake usa RPC atômica sob JWT do administrador, sem token na resposta', async () => {
+  const input = {
+    patient_id: userId,
+    procedure_id: userId,
+    amount_cents: 25000,
+    session_price_cents: 25000,
+    description: 'Exemplo',
+    quote_date: '2026-10-16',
+    status: 'aguardando',
+    intake_key: userId,
+  };
+  let writes = 0;
+  const r = await handleRequest(
+    req('quote-intake', 'POST', input, { cookie: '__Host-mml_access=test' }),
+    env,
+    async (url, opts) => {
+      if (url.endsWith('/rpc/create_quote_intake')) {
+        writes++;
+        assert.equal(opts.headers.Authorization, 'Bearer test');
+        assert.deepEqual(JSON.parse(opts.body), { payload: input });
+        return json({ id: userId, ...input });
+      }
+      return authMock(url);
+    },
+  );
+  assert.equal(r.status, 201);
+  assert.equal(writes, 1);
+  assert.equal(r.headers.get('cache-control'), 'no-store, private');
+  assert.ok(!(await r.text()).includes('Bearer'));
+});
+test('não é possível alterar autor ou apagar histórico de contatos pela API', async () => {
+  for (const [method, body, suffix, status] of [
+    ['PATCH', { quote_id: userId, stage: 7, version: userId }, `/${userId}`, 405],
+    ['DELETE', undefined, `/${userId}`, 405],
+    ['POST', { quote_id: userId, stage: 7, actor_id: userId }, '', 400],
+  ]) {
+    const r = await handleRequest(
+      req(`quote_contacts${suffix}`, method, body, {
+        cookie: '__Host-mml_access=test',
+      }),
+      env,
+      authMock,
+    );
+    assert.equal(r.status, status);
+  }
+});
 test('configuração ausente falha fechada', async () =>
   assert.equal((await handleRequest(req('data'), {})).status, 503));
 test('sem sessão, nenhuma chamada ao banco', async () => {
@@ -48,11 +116,18 @@ test('usuário autenticado sem autorização administrativa não lê dados', asy
 });
 test('login usa cookies seguros sem retornar tokens no corpo', async () => {
   const r = await handleRequest(
-    req('login', 'POST', { email: 'admin@example.invalid', password: 'fictional-password' }),
+    req('login', 'POST', {
+      email: 'admin@example.invalid',
+      password: 'fictional-password',
+    }),
     env,
     async (url) =>
       url.includes('/token?')
-        ? json({ access_token: 'secret-access', refresh_token: 'secret-refresh', expires_in: 900 })
+        ? json({
+            access_token: 'secret-access',
+            refresh_token: 'secret-refresh',
+            expires_in: 900,
+          })
         : authMock(url),
   );
   assert.equal(r.status, 200);
@@ -67,7 +142,11 @@ test('refresh renova ambos cookies e verifica administrador', async () => {
     async (url, opts) => {
       if (url.includes('grant_type=refresh_token')) {
         assert.deepEqual(JSON.parse(opts.body), { refresh_token: 'old' });
-        return json({ access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 900 });
+        return json({
+          access_token: 'new-access',
+          refresh_token: 'new-refresh',
+          expires_in: 900,
+        });
       }
       return authMock(url);
     },
@@ -93,7 +172,12 @@ test('campos inválidos são rejeitados no servidor', async () => {
     req(
       'patients',
       'POST',
-      { name: 'Fictício', phone: '13000000000', procedure_id: userId, created_at: 'forged' },
+      {
+        name: 'Fictício',
+        phone: '13000000000',
+        procedure_id: userId,
+        created_at: 'forged',
+      },
       { cookie: '__Host-mml_access=test' },
     ),
     env,
@@ -136,7 +220,8 @@ test('logout renova JWT expirado somente para revogar a sessão remota', async (
 test('falha de auditoria ou acesso administrativo revogado não bloqueia logout no Auth', async () => {
   let revoked = false;
   const r = await handleRequest(
-    req('logout', 'POST', {}, { cookie: '__Host-mml_access=valid' }), env,
+    req('logout', 'POST', {}, { cookie: '__Host-mml_access=valid' }),
+    env,
     async (url) => {
       if (url.endsWith('/user')) return json({ id: userId });
       if (url.includes('/rpc/')) return json({}, 403);
@@ -147,4 +232,54 @@ test('falha de auditoria ou acesso administrativo revogado não bloqueia logout 
   );
   assert.equal(revoked, true);
   assert.deepEqual(await r.json(), { ok: true, revoked: true });
+});
+
+test('cadastro rápido valida entrada, usa JWT e traduz conflito sem dados pessoais', async () => {
+  const input = { name: 'Cliente Fictício', phone: '13900000000', procedure_id: userId };
+  let writes = 0;
+  const fetcher = async (url, opts) => {
+    if (url.endsWith('/rpc/create_patient_intake')) {
+      writes++;
+      assert.equal(opts.headers.Authorization, 'Bearer test');
+      assert.deepEqual(JSON.parse(opts.body), { payload: input });
+      return json({ id: userId, ...input });
+    }
+    return authMock(url);
+  };
+  const headers = { cookie: '__Host-mml_access=test' };
+  assert.equal(
+    (
+      await handleRequest(
+        req('patient-intake', 'POST', { ...input, phone: 'abc' }, headers),
+        env,
+        fetcher,
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await handleRequest(
+        req('patient-intake', 'POST', { ...input, id: userId }, headers),
+        env,
+        fetcher,
+      )
+    ).status,
+    400,
+  );
+  assert.equal(writes, 0);
+  const result = await handleRequest(req('patient-intake', 'POST', input, headers), env, fetcher);
+  assert.equal(result.status, 201);
+  assert.equal(result.headers.get('cache-control'), 'no-store, private');
+  assert.equal((await result.json()).id, userId);
+  const conflict = await handleRequest(
+    req('patient-intake', 'POST', input, headers),
+    env,
+    async (url) =>
+      url.includes('/rpc/')
+        ? json({ code: 'P0002', message: 'Sensitive DB details' }, 400)
+        : authMock(url),
+  );
+  assert.equal(conflict.status, 409);
+  assert.ok(!(await conflict.text()).includes('Sensitive'));
 });
