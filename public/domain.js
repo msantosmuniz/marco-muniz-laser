@@ -8,6 +8,15 @@ export function suggestedReturn(start, days) {
   date.setUTCDate(date.getUTCDate() + days);
   return date.toISOString().slice(0, 10);
 }
+export function dailySchedule(data, day) {
+  const sessions = data.appointments
+    .filter((a) => ['agendado', 'realizado'].includes(a.status) && localDate(a.starts_at) === day)
+    .sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+  return {
+    sessions,
+    forecast: sessions.reduce((sum, a) => sum + a.price_cents, 0),
+  };
+}
 export function monthlyMetrics(data, month) {
   const inMonth = (value) => value && localDate(value).startsWith(month);
   const quotes = data.quotes.filter((q) => inMonth(q.created_at));
