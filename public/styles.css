@@ -936,6 +936,20 @@ dialog textarea {
   align-items: center;
   gap: 18px;
 }
+.daily-panel { margin-bottom: 24px; }
+.daily-panel .panel-title .hint { margin: 8px 0 0; }
+.daily-layout { display: grid; grid-template-columns: minmax(0, 1fr) 250px; gap: 24px; align-items: start; }
+.daily-time, .daily-value { white-space: nowrap; }
+.daily-time { font-weight: 600; }
+.daily-forecast { background: #e8eee3; border: 1px solid #d1ddc9; border-radius: 8px; padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+.daily-forecast > span { font-size: 13px; }
+.daily-forecast > strong { font-size: 32px; font-weight: 500; }
+.daily-forecast > small, .daily-forecast p { font-size: 12px; line-height: 1.6; }
+.daily-forecast p { margin: 0; }
+@media (max-width: 1100px) {
+  .daily-layout { grid-template-columns: minmax(0, 1fr); }
+  .daily-forecast { order: -1; }
+}
 .refresh {
   border: 1px solid var(--line);
   border-radius: 5px;
